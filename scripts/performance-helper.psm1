@@ -87,7 +87,7 @@ $WpaQUICLogProfileXml = `
 
 function Set-ScriptVariables {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
-    param ($Local, $LocalTls, $LocalArch, $RemoteTls, $RemoteArch, $Config, $Publish, $Record, $RecordQUIC, $RemoteAddress, $Session)
+    param ($Local, $LocalTls, $LocalArch, $RemoteTls, $RemoteArch, $Config, $Publish, $Record, $RecordQUIC, $RemoteAddress, $Session, $Kernel)
     $script:Local = $Local
     $script:LocalTls = $LocalTls
     $script:LocalArch = $LocalArch
@@ -99,6 +99,7 @@ function Set-ScriptVariables {
     $script:RecordQUIC = $RecordQUIC
     $script:RemoteAddress = $RemoteAddress
     $script:Session = $Session
+    $script:Kernel = $Kernel
     if ($null -ne $Session) {
         Invoke-Command -Session $Session -ScriptBlock {
             $ErrorActionPreference = "Stop"
@@ -197,6 +198,7 @@ function Wait-ForRemote {
 function Copy-Artifacts {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingEmptyCatchBlock', '')]
     param ([string]$From, [string]$To)
+    Remove-PerfServices
     Invoke-TestCommand $Session -ScriptBlock {
         param ($To)
         try {
@@ -258,6 +260,27 @@ function Get-ExeName {
     }
 }
 
+function Remove-PerfServices {
+    if ($IsWindows) {
+        Invoke-TestCommand -Session $Session -ScriptBlock {
+            if ($null -ne (Get-Service -Name "quicperf" -ErrorAction Ignore)) {
+                try {
+                    net.exe stop quicperf /y | Out-Null
+                }
+                catch {}
+                sc.exe delete quicperf /y | Out-Null
+            }
+            if ($null -ne (Get-Service -Name "msquicpriv" -ErrorAction Ignore)) {
+                try {
+                    net.exe stop msquicpriv /y | Out-Null
+                }
+                catch {}
+                sc.exe delete msquicpriv /y | Out-Null
+            }
+        }
+    }
+}
+
 function Invoke-RemoteExe {
     param ($Exe, $RunArgs)
 
@@ -271,6 +294,10 @@ function Invoke-RemoteExe {
         return $null
     } -ArgumentList $Exe
 
+    if ($Kernel) {
+        $RunArgs = "--kernel $RunArgs"
+    }
+
     Write-Debug "Running Remote: $Exe $RunArgs"
 
     $WpaXml = $WpaStackWalkProfileXml
@@ -279,7 +306,7 @@ function Invoke-RemoteExe {
     }
 
     return Invoke-TestCommand -Session $Session -ScriptBlock {
-        param ($Exe, $RunArgs, $BasePath, $Record, $WpaXml)
+        param ($Exe, $RunArgs, $BasePath, $Record, $WpaXml, $Kernel)
         if ($null -ne $BasePath) {
             $env:LD_LIBRARY_PATH = $BasePath
         }
@@ -291,13 +318,31 @@ function Invoke-RemoteExe {
             wpr.exe -start $EtwXmlName -filemode 2> $null
         }
 
+        $Arch = Split-Path (Split-Path $Exe -Parent) -Leaf
+        $RootBinPath = Split-Path (Split-Path (Split-Path $Exe -Parent) -Parent) -Parent
+        $KernelDir = Join-Path $RootBinPath "winkernel" $Arch
+
+        if ($Kernel) {
+            Copy-Item (Join-Path $KernelDir "quicperf.sys") (Split-Path $Exe -Parent)
+            Copy-Item (Join-Path $KernelDir "msquicpriv.sys") (Split-Path $Exe -Parent)
+            sc.exe create "msquicpriv" type= kernel binpath= (Join-Path (Split-Path $Exe -Parent) "msquicpriv.sys") start= demand | Out-Null
+            net.exe start msquicpriv
+        }
+
         & $Exe ($RunArgs).Split(" ")
+
+        # Uninstall the kernel mode test driver and revert the msquic driver.
+        if ($Kernel) {
+            net.exe stop msquicpriv /y | Out-Null
+            sc.exe delete quicperf | Out-Null
+            sc.exe delete msquicpriv | Out-Null
+        }
 
         if ($Record -and $IsWindows) {
             $EtwName = $Exe + ".remote.etl"
             wpr.exe -stop $EtwName 2> $null
         }
-    } -AsJob -ArgumentList $Exe, $RunArgs, $BasePath, $Record, $WpaXml
+    } -AsJob -ArgumentList $Exe, $RunArgs, $BasePath, $Record, $WpaXml, $Kernel
 }
 
 function Get-RemoteFile {
@@ -584,6 +629,88 @@ function Publish-RPSTestResults {
 
 #endregion
 
+#region HPS Publish
+
+class HPSRequest {
+    [string]$PlatformName;
+
+    HPSRequest (
+        [TestRunDefinition]$Test
+    ) {
+        $this.PlatformName = $Test.ToTestPlatformString();
+    }
+}
+
+function Get-LatestHPSRemoteTestResults([HPSRequest]$Request) {
+    $Uri = "https://msquicperformanceresults.azurewebsites.net/HPS/get"
+    $RequestJson = ConvertTo-Json -InputObject $Request
+    Write-Debug "Requesting: $Uri with $RequestJson"
+    $LatestResult = Invoke-RestMethod -SkipHttpErrorCheck -Uri $Uri -Body $RequestJson -Method 'Post' -ContentType "application/json"
+    Write-Debug "Result: $LatestResult"
+    return $LatestResult
+}
+
+class HPSTestPublishResult {
+    [string]$MachineName;
+    [string]$PlatformName;
+    [string]$TestName;
+    [string]$CommitHash;
+    [string]$AuthKey;
+    [double[]]$IndividualRunResults;
+
+    HPSTestPublishResult (
+        [HPSRequest]$Request,
+        [double[]]$RunResults,
+        [string]$MachineName,
+        [string]$CommitHash
+    ) {
+        $this.TestName = "HPS"
+        $this.MachineName = $MachineName
+        $this.PlatformName = $Request.PlatformName
+        $this.CommitHash = $CommitHash
+        $this.AuthKey = "empty"
+        $this.IndividualRunResults = $RunResults
+    }
+}
+
+function Publish-HPSTestResults {
+    param ([TestRunDefinition]$Test, $AllRunsResults, $CurrentCommitHash, $OutputDir)
+
+    $Request = [HPSRequest]::new($Test)
+
+    $MedianCurrentResult = Get-MedianTestResults -FullResults $AllRunsResults
+    $FullLastResult = Get-LatestHPSRemoteTestResults -Request $Request
+
+    if ($FullLastResult -ne "") {
+        $MedianLastResult = Get-MedianTestResults -FullResults $FullLastResult.individualRunResults
+        $PercentDiff = 100 * (($MedianCurrentResult - $MedianLastResult) / $MedianLastResult)
+        $PercentDiffStr = $PercentDiff.ToString("#.##")
+        if ($PercentDiff -ge 0) {
+            $PercentDiffStr = "+$PercentDiffStr"
+        }
+        Write-Output "Median: $MedianCurrentResult $($Test.Units) ($PercentDiffStr%)"
+        Write-Output "Master: $MedianLastResult $($Test.Units)"
+    } else {
+        Write-Output "Median: $MedianCurrentResult $($Test.Units)"
+    }
+
+    if ($Publish -and ($null -ne $CurrentCommitHash)) {
+        Write-Output "Saving results_$Test.json out for publishing."
+        $MachineName = $null
+        if (Test-Path 'env:AGENT_MACHINENAME') {
+            $MachineName = $env:AGENT_MACHINENAME
+        }
+        $Results = [HPSTestPublishResult]::new($Request, $AllRunsResults, $MachineName, $CurrentCommitHash.Substring(0, 7))
+
+        $ResultFile = Join-Path $OutputDir "results_$Test.json"
+        $Results | ConvertTo-Json | Out-File $ResultFile
+    } elseif (!$Publish) {
+        Write-Debug "Failed to publish because of missing commit hash"
+    }
+}
+
+#endregion
+
 function Publish-TestResults {
     param ([TestRunDefinition]$Test, $AllRunsResults, $CurrentCommitHash, $OutputDir)
 
@@ -591,8 +718,10 @@ function Publish-TestResults {
         Publish-ThroughputTestResults -Test $Test -AllRunsResults $AllRunsResults -CurrentCommitHash $CurrentCommitHash -OutputDir $OutputDir
     } elseif ($Test.TestName -eq "RPS") {
         Publish-RPSTestResults -Test $Test -AllRunsResults $AllRunsResults -CurrentCommitHash $CurrentCommitHash -OutputDir $OutputDir
+    } elseif ($Test.TestName -eq "HPS") {
+        Publish-HPSTestResults -Test $Test -AllRunsResults $AllRunsResults -CurrentCommitHash $CurrentCommitHash -OutputDir $OutputDir
     } else {
-        Write-Error "Unknown Test Type"
+        Write-Host "Unknown Test Type"
     }
 }
 
@@ -678,7 +807,11 @@ class TestRunDefinition {
         if ($this.VariableName -eq "Default") {
             $VarVal = ""
         }
-        $RetString = "$($this.TestName)_$($this.Remote.Platform)_$($script:RemoteArch)_$($script:RemoteTls)_$($this.VariableName)$VarVal"
+        $Platform = $this.Remote.Platform
+        if ($script:Kernel -and $this.Remote.Platform -eq "Windows") {
+            $Platform = 'Winkernel'
+        }
+        $RetString = "$($this.TestName)_$($Platform)_$($script:RemoteArch)_$($script:RemoteTls)_$($this.VariableName)$VarVal"
         if ($this.Loopback) {
             $RetString += "_Loopback"
         }
@@ -686,7 +819,11 @@ class TestRunDefinition {
     }
 
     [string]ToTestPlatformString() {
-        $RetString = "$($this.Remote.Platform)_$($script:RemoteArch)_$($script:RemoteTls)"
+        $Platform = $this.Remote.Platform
+        if ($script:Kernel -and $this.Remote.Platform -eq "Windows") {
+            $Platform = 'Winkernel'
+        }
+        $RetString = "$($Platform)_$($script:RemoteArch)_$($script:RemoteTls)"
         return $RetString
     }
 }
@@ -733,15 +870,18 @@ function Get-TestMatrix {
             $RemoteArgs += " " + $Test.Remote.Arguments.Remote
         }
 
+        $DefaultLocalArgs = $LocalArgs
+        $DefaultRemoteArgs = $RemoteArgs
+
         $VariableValues = @{}
         foreach ($VarKey in $DefaultVals.Keys) {
             $VariableValues.Add($VarKey, $DefaultVals[$VarKey].DefaultKey)
-            $LocalArgs += (" " + $DefaultVals[$VarKey].LocalValue)
-            $RemoteArgs += (" " + $DefaultVals[$VarKey].RemoteValue)
+            $DefaultLocalArgs += (" " + $DefaultVals[$VarKey].LocalValue)
+            $DefaultRemoteArgs += (" " + $DefaultVals[$VarKey].RemoteValue)
         }
 
         # Create the default test
-        $TestRunDef = [TestRunDefinition]::new($Test, $LocalArgs, $RemoteArgs, $VariableValues)
+        $TestRunDef = [TestRunDefinition]::new($Test, $DefaultLocalArgs, $DefaultRemoteArgs, $VariableValues)
         $ToRunTests += $TestRunDef
 
         foreach ($Var in $Test.Variables) {

@@ -14,18 +14,15 @@ Environment:
 
 --*/
 
-#ifndef QUIC_PLATFORM_
+#pragma once
+
+#ifndef QUIC_PLATFORM_TYPE
 #error "Must be included from quic_platform.h"
 #endif
 
 #ifndef _KERNEL_MODE
 #error "Incorrectly including Windows Kernel Platform Header"
 #endif
-
-#ifndef _PLATFORM_WINDOWS_KERNEL_
-#define _PLATFORM_WINDOWS_KERNEL_
-
-#pragma once
 
 #pragma warning(push) // Don't care about OACR warnings in publics
 #pragma warning(disable:26036)
@@ -505,7 +502,7 @@ QuicRefDecrement(
 typedef KEVENT QUIC_EVENT;
 #define QuicEventInitialize(Event, ManualReset, InitialState) \
     KeInitializeEvent(Event, ManualReset ? NotificationEvent : SynchronizationEvent, InitialState)
-#define QuicEventUninitialize(Event)
+#define QuicEventUninitialize(Event) UNREFERENCED_PARAMETER(Event)
 #define QuicEventSet(Event) KeSetEvent(&(Event), IO_NO_INCREMENT, FALSE)
 #define QuicEventReset(Event) KeResetEvent(&(Event))
 #define QuicEventWaitForever(Event) \
@@ -704,7 +701,7 @@ QuicSleep(
 
 typedef struct QUIC_THREAD_CONFIG {
     uint16_t Flags;
-    uint8_t IdealProcessor;
+    uint16_t IdealProcessor;
     _Field_z_ const char* Name;
     KSTART_ROUTINE* Callback;
     void* Context;
@@ -841,16 +838,10 @@ QuicThreadCreate(
                 &UnicodeName,
                 sizeof(UNICODE_STRING));
         QUIC_DBG_ASSERT(QUIC_SUCCEEDED(Status));
-        if (QUIC_FAILED(Status)) {
-            goto Cleanup;
-        }
+        Status = QUIC_STATUS_SUCCESS;
     }
 Cleanup:
     NtClose(ThreadHandle);
-    if (QUIC_FAILED(Status) && *Thread != NULL) {
-        ObDereferenceObject(*Thread);
-        *Thread = NULL;
-    }
 Error:
     return Status;
 }
@@ -933,7 +924,30 @@ NdisSetThreadObjectCompartmentId(
     IN NET_IF_COMPARTMENT_ID CompartmentId
     );
 
-#define QuicSetCurrentThreadAffinityMask(Mask) KeSetSystemAffinityThreadEx(Mask)
+inline
+QUIC_STATUS
+QuicSetCurrentThreadProcessorAffinity(
+    _In_ uint8_t ProcessorIndex
+    )
+{
+    PROCESSOR_NUMBER ProcInfo;
+    QUIC_STATUS Status =
+        KeGetProcessorNumberFromIndex(
+            ProcessorIndex,
+            &ProcInfo);
+    if (QUIC_FAILED(Status)) {
+        return Status;
+    }
+    GROUP_AFFINITY Affinity = {0};
+    Affinity.Mask = (KAFFINITY)(1ull << ProcInfo.Number);
+    Affinity.Group = ProcInfo.Group;
+    return
+        ZwSetInformationThread(
+            PsGetCurrentThread(),
+            ThreadGroupInformation,
+            &Affinity,
+            sizeof(Affinity));
+}
 
 #define QuicCompartmentIdGetCurrent() NdisGetThreadObjectCompartmentId(PsGetCurrentThread())
 #define QuicCompartmentIdSetCurrent(CompartmentId) \
@@ -944,5 +958,3 @@ NdisSetThreadObjectCompartmentId(
 #if defined(__cplusplus)
 }
 #endif
-
-#endif // _PLATFORM_WINDOWS_KERNEL_

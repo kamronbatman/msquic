@@ -63,6 +63,12 @@ This script provides helpers for building msquic.
 .PARAMETER UpdateClog
     Build allowing clog to update the sidecar.
 
+.PARAMETER ConfigureOnly
+    Run configuration only.
+
+.PARAMETER CI
+    Build is occuring from CI
+
 .EXAMPLE
     build.ps1
 
@@ -131,7 +137,13 @@ param (
     [switch]$Clang = $false,
 
     [Parameter(Mandatory = $false)]
-    [switch]$UpdateClog = $false
+    [switch]$UpdateClog = $false,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ConfigureOnly = $false,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$CI = $false
 )
 
 Set-StrictMode -Version 'Latest'
@@ -234,11 +246,11 @@ function CMake-Generate {
     }
     $Arguments += " -DQUIC_TLS=" + $Tls
     $Arguments += " -DQUIC_OUTPUT_DIR=" + $ArtifactsDir
-    if ($DisableLogs) {
-        $Arguments += " -DQUIC_ENABLE_LOGGING=off"
+    if (!$DisableLogs) {
+        $Arguments += " -DQUIC_ENABLE_LOGGING=on"
     }
     if ($SanitizeAddress) {
-        $Arguments += " -DQUIC_SANITIZE_ADDRESS=on"
+        $Arguments += " -DQUIC_ENABLE_SANITIZERS=on"
     }
     if ($DisableTools) {
         $Arguments += " -DQUIC_BUILD_TOOLS=off"
@@ -269,6 +281,9 @@ function CMake-Generate {
     }
     if ($SkipSourceLink) {
         $Arguments += " -DQUIC_SOURCE_LINK=OFF"
+    }
+    if ($CI) {
+        $Arguments += " -DQUIC_CI=ON"
     }
     $Arguments += " ../../.."
 
@@ -305,14 +320,10 @@ function CMake-Build {
             Copy-Item (Join-Path $BuildDir "obj" $Config "msquicetw.lib") $ArtifactsDir
         }
         if ($PGO -and $Config -eq "Release") {
-            # TODO - Figure out a better way to get the path?
-            $VCToolsPath = "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.26.28801\bin\Host$Arch\$Arch"
-            if (!(Test-Path $VCToolsPath)) {
-                $VCToolsPath = "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\MSVC\14.26.28801\bin\Host$Arch\$Arch"
-            }
-            if (!(Test-Path $VCToolsPath)) {
-                $VCToolsPath = "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.26.28801\bin\Host$Arch\$Arch"
-            }
+            Install-Module VSSetup -Scope CurrentUser -Force -SkipPublisherCheck
+            $VSInstallationPath = Get-VSSetupInstance | Select-VSSetupInstance -Latest -Require Microsoft.VisualStudio.Component.VC.Tools.x86.x64 | Select-Object -ExpandProperty InstallationPath
+            $VCToolVersion = Get-Content -Path "$VSInstallationPath\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"
+            $VCToolsPath = "$VSInstallationPath\VC\Tools\MSVC\$VCToolVersion\bin\Host$Arch\$Arch"
             if (Test-Path $VCToolsPath) {
                 Copy-Item (Join-Path $VCToolsPath "pgort140.dll") $ArtifactsDir
                 Copy-Item (Join-Path $VCToolsPath "pgodb140.dll") $ArtifactsDir
@@ -338,9 +349,11 @@ if ($UpdateClog) {
 Log "Generating files..."
 CMake-Generate
 
-# Build the code.
-Log "Building..."
-CMake-Build
+if (!$ConfigureOnly) {
+    # Build the code.
+    Log "Building..."
+    CMake-Build
+}
 
 Log "Done."
 

@@ -22,16 +22,15 @@ Abstract:
 #define QUIC_MIN_INITIAL_CONNECTION_ID_LENGTH       8
 
 //
-// The minimum and maximum CID server ID length used by MsQuic.
+// The maximum CID server ID length used by MsQuic.
 //
-#define MSQUIC_MIN_CID_SID_LENGTH                   0
 #define MSQUIC_MAX_CID_SID_LENGTH                   5
 
 //
 // The index of the byte we use for partition ID lookup, in the connection ID.
-// The PID is just a single byte. The PID immediately follows the SID.
+// The PID is 2 bytes. The PID immediately follows the SID.
 //
-#define MSQUIC_CID_PID_LENGTH                       1
+#define MSQUIC_CID_PID_LENGTH                       2
 
 //
 // The number of bytes (and randomness) that MsQuic uses to uniquely
@@ -48,9 +47,7 @@ Abstract:
 // The minimum length CIDs that MsQuic ever will generate.
 //
 #define MSQUIC_CID_MIN_LENGTH \
-    (MSQUIC_MIN_CID_SID_LENGTH + \
-     MSQUIC_CID_PID_LENGTH + \
-     MSQUIC_CID_PAYLOAD_LENGTH)
+    (MSQUIC_CID_PID_LENGTH + MSQUIC_CID_PAYLOAD_LENGTH)
 
 //
 // The maximum length CIDs that MsQuic ever will generate.
@@ -165,7 +162,7 @@ QuicCidNewNullSource(
     _In_ QUIC_CONNECTION* Connection
     )
 {
-    QUIC_CID_HASH_ENTRY* Entry = 
+    QUIC_CID_HASH_ENTRY* Entry =
         (QUIC_CID_HASH_ENTRY*)QUIC_ALLOC_NONPAGED(sizeof(QUIC_CID_HASH_ENTRY));
 
     if (Entry != NULL) {
@@ -299,4 +296,3 @@ QuicCidToStr(
 {
     return QuicCidBufToStr(CID->Data, CID->Length);
 }
-

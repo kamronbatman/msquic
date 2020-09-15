@@ -11,8 +11,9 @@
 #endif
 
 bool TestingKernelMode = false;
-const QUIC_API_TABLE* MsQuic;
-HQUIC Registration;
+bool PrivateTestLibrary = false;
+const MsQuicApi* MsQuic;
+MsQuicRegistration* Registration;
 QUIC_SEC_CONFIG_PARAMS* SelfSignedCertParams;
 QUIC_SEC_CONFIG* SecurityConfig;
 QuicDriverClient DriverClient;
@@ -33,14 +34,24 @@ public:
                 )) != nullptr);
         if (TestingKernelMode) {
             printf("Initializing for Kernel Mode tests\n");
-            ASSERT_TRUE(DriverService.Initialize());
+            const char* DriverName;
+            const char* DependentDriverNames;
+            if (PrivateTestLibrary) {
+                DriverName = QUIC_DRIVER_NAME_PRIVATE;
+                DependentDriverNames = "msquicpriv\0";
+            } else {
+                DriverName = QUIC_DRIVER_NAME;
+                DependentDriverNames = "msquic\0";
+            }
+            ASSERT_TRUE(DriverService.Initialize(DriverName, DependentDriverNames));
             ASSERT_TRUE(DriverService.Start());
-            ASSERT_TRUE(DriverClient.Initialize(SelfSignedCertParams));
+            ASSERT_TRUE(DriverClient.Initialize(SelfSignedCertParams, DriverName));
         } else {
             printf("Initializing for User Mode tests\n");
-            ASSERT_TRUE(QUIC_SUCCEEDED(MsQuicOpen(&MsQuic)));
-            const QUIC_REGISTRATION_CONFIG RegConfig = { "MsQuicBVT", QUIC_EXECUTION_PROFILE_LOW_LATENCY };
-            ASSERT_TRUE(QUIC_SUCCEEDED(MsQuic->RegistrationOpen(&RegConfig, &Registration)));
+            MsQuic = new MsQuicApi();
+            ASSERT_TRUE(QUIC_SUCCEEDED(MsQuic->GetInitStatus()));
+            Registration = new MsQuicRegistration("MsQuicBVT");
+            ASSERT_TRUE(QUIC_SUCCEEDED(Registration->GetInitStatus()));
             ASSERT_TRUE(LoadSecConfig());
             QuicTestInitialize();
         }
@@ -52,8 +63,8 @@ public:
         } else {
             QuicTestUninitialize();
             MsQuic->SecConfigDelete(SecurityConfig);
-            MsQuic->RegistrationClose(Registration);
-            MsQuicClose(MsQuic);
+            delete Registration;
+            delete MsQuic;
         }
         QuicPlatFreeSelfSignedCert(SelfSignedCertParams);
         QuicPlatformUninitialize();
@@ -78,7 +89,7 @@ public:
         QuicEventInitialize(&Event, FALSE, FALSE);
         if (QUIC_SUCCEEDED(
             MsQuic->SecConfigCreate(
-                Registration,
+                *Registration,
                 (QUIC_SEC_CONFIG_FLAGS)SelfSignedCertParams->Flags,
                 SelfSignedCertParams->Certificate,
                 SelfSignedCertParams->Principal,
@@ -1015,7 +1026,9 @@ int main(int argc, char** argv) {
     for (int i = 0; i < argc; ++i) {
         if (strcmp("--kernel", argv[i]) == 0) {
             TestingKernelMode = true;
-            break;
+        }
+        if (strcmp("--privateLibrary", argv[i]) == 0) {
+            PrivateTestLibrary = true;
         }
     }
     ::testing::AddGlobalTestEnvironment(new QuicTestEnvironment);

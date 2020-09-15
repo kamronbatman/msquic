@@ -422,12 +422,10 @@ typedef struct QUIC_EVENT_DATA_CONNECTION {
             UINT16 ProbeCount;
         } LossDetectionTimerSet;
         struct {
-            UINT64 PktNum;
             UINT8 Addrs[1]; // LocalAddr, RemoteAddr
             // char Reason[];
         } DropPacket;
         struct {
-            UINT64 PktNum;
             UINT64 Value;
             UINT8 Addrs[1]; // LocalAddr, RemoteAddr
             // char Reason[];
@@ -570,11 +568,9 @@ typedef struct QUIC_EVENT_DATA_BINDING {
             UINT8 Addrs[1]; // LocalAddr, RemoteAddr
         } Created, Rundown;
         struct {
-            UINT64 PktNum;
             UINT8 Addrs[1]; // LocalAddr, RemoteAddr
         } DropPacket;
         struct {
-            UINT64 PktNum;
             UINT64 Value;
             UINT8 Addrs[1]; // LocalAddr, RemoteAddr
         } DropPacketEx;
@@ -1144,6 +1140,7 @@ inline void ReadCid(_In_z_ const char* Cid)
 #define QUIC_ERROR_TRANSPORT_PARAMETER_ERROR    0x8
 #define QUIC_ERROR_PROTOCOL_VIOLATION           0xA
 #define QUIC_ERROR_CRYPTO_BUFFER_EXCEEDED       0xD
+#define QUIC_ERROR_AEAD_LIMIT_REACHED           0xE
 
 #define QUIC_ERROR_CRYPTO_ERROR_MASK            0x1FF
 
@@ -1168,6 +1165,7 @@ QuicErrorToString(
         case QUIC_ERROR_TRANSPORT_PARAMETER_ERROR:  return "TRANSPORT_PARAMETER_ERROR";
         case QUIC_ERROR_PROTOCOL_VIOLATION:         return "PROTOCOL_VIOLATION";
         case QUIC_ERROR_CRYPTO_BUFFER_EXCEEDED:     return "CRYPTO_BUFFER_EXCEEDED";
+        case QUIC_ERROR_AEAD_LIMIT_REACHED:         return "AEAD_LIMIT_REACHED";
         default:                                    return "UNDEFINED ERROR CODE";
         }
     } else if (ErrorCode < 0x200) {

@@ -35,9 +35,11 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="HpsClient.cpp" />
+    <ClCompile Include="PerfServer.cpp" />
     <ClCompile Include="quicmain.cpp" />
+    <ClCompile Include="RpsClient.cpp" />
     <ClCompile Include="ThroughputClient.cpp" />
-    <ClCompile Include="ThroughputServer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="PerfHelpers.h" />

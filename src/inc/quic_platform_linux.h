@@ -13,16 +13,15 @@ Environment:
 
 --*/
 
-#ifndef QUIC_PLATFORM_
+#pragma once
+
+#ifndef QUIC_PLATFORM_TYPE
 #error "Must be included from quic_platform.h"
 #endif
 
 #ifndef QUIC_PLATFORM_LINUX
 #error "Incorrectly including Linux Platform Header from non-Linux platfrom"
 #endif
-
-#ifndef _PLATFORM_LINUX_
-#define _PLATFORM_LINUX_
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -631,7 +630,7 @@ typedef void* (* LPTHREAD_START_ROUTINE)(void *);
 
 typedef struct QUIC_THREAD_CONFIG {
     uint16_t Flags;
-    uint8_t IdealProcessor;
+    uint16_t IdealProcessor;
     _Field_z_ const char* Name;
     LPTHREAD_START_ROUTINE Callback;
     void* Context;
@@ -792,10 +791,10 @@ QuicPlatFreeSelfSignedCert(
 
 #endif // QUIC_TEST_APIS
 
+#define QuicSetCurrentThreadProcessorAffinity(ProcessorIndex) QUIC_STATUS_SUCCESS
+
 #define QUIC_CPUID(FunctionId, eax, ebx, ecx, dx)
 
 #if defined(__cplusplus)
 }
 #endif
-
-#endif // _PLATFORM_LINUX_

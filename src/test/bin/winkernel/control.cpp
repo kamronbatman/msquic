@@ -17,14 +17,19 @@ Abstract:
 #include "control.cpp.clog.h"
 #endif
 
-const QUIC_API_TABLE* MsQuic;
-HQUIC Registration;
+const MsQuicApi* MsQuic;
+MsQuicRegistration* Registration;
 QUIC_SEC_CONFIG* SecurityConfig;
 
 QUIC_SEC_CONFIG_CREATE_COMPLETE QuicTestSecConfigCreated;
 
-DECLARE_CONST_UNICODE_STRING(QuicTestCtlDeviceName, L"\\Device\\msquictest");
-DECLARE_CONST_UNICODE_STRING(QuicTestCtlDeviceSymLink, L"\\DosDevices\\msquictest");
+#ifdef PRIVATE_LIBRARY
+DECLARE_CONST_UNICODE_STRING(QuicTestCtlDeviceName, L"\\Device\\" QUIC_DRIVER_NAME_PRIVATE);
+DECLARE_CONST_UNICODE_STRING(QuicTestCtlDeviceSymLink, L"\\DosDevices\\" QUIC_DRIVER_NAME_PRIVATE);
+#else
+DECLARE_CONST_UNICODE_STRING(QuicTestCtlDeviceName, L"\\Device\\" QUIC_DRIVER_NAME);
+DECLARE_CONST_UNICODE_STRING(QuicTestCtlDeviceSymLink, L"\\DosDevices\\" QUIC_DRIVER_NAME);
+#endif
 
 typedef struct QUIC_DEVICE_EXTENSION {
     EX_PUSH_LOCK Lock;
@@ -40,7 +45,6 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(QUIC_DEVICE_EXTENSION, QuicTestCtlGetDeviceCo
 typedef struct QUIC_TEST_CLIENT
 {
     LIST_ENTRY Link;
-    HQUIC Registration;
     QUIC_SEC_CONFIG* SecurityConfig;
     KEVENT SecConfigComplete;
     bool TestFailure;
@@ -76,12 +80,15 @@ QuicTestCtlInitialize(
     WDF_IO_QUEUE_CONFIG QueueConfig;
     WDFQUEUE Queue;
 
-    Status = MsQuicOpen(&MsQuic);
-    if (QUIC_FAILED(Status)) {
+    MsQuic = new MsQuicApi();
+    if (!MsQuic) {
+        goto Error;
+    }
+    if (QUIC_FAILED(MsQuic->GetInitStatus())) {
         QuicTraceEvent(
             LibraryErrorStatus,
             "[ lib] ERROR, %u, %s.",
-            Status,
+            MsQuic->GetInitStatus(),
             "MsQuicOpen");
         goto Error;
     }
@@ -212,10 +219,7 @@ QuicTestCtlUninitialize(
         QuicTestCtlDevice = nullptr;
     }
 
-    if (MsQuic != nullptr) {
-        MsQuicClose(MsQuic);
-        MsQuic = nullptr;
-    }
+    delete MsQuic;
 
     QuicTraceLogVerbose(
         TestControlUninitialized,
@@ -262,13 +266,15 @@ QuicTestCtlEvtFileCreate(
         RtlZeroMemory(Client, sizeof(QUIC_TEST_CLIENT));
         KeInitializeEvent(&Client->SecConfigComplete, NotificationEvent, FALSE);
 
-        const QUIC_REGISTRATION_CONFIG RegConfig = { "MsQuicBvt", QUIC_EXECUTION_PROFILE_LOW_LATENCY };
-        Status = MsQuic->RegistrationOpen(&RegConfig, &Client->Registration);
-        if (QUIC_FAILED(Status)) {
+        Registration = new MsQuicRegistration("MsQuicBVT");
+        if (Registration == nullptr) {
+            break;
+        }
+        if (QUIC_FAILED(Registration->GetInitStatus())) {
             QuicTraceEvent(
                 LibraryErrorStatus,
                 "[ lib] ERROR, %u, %s.",
-                Status,
+                Registration->GetInitStatus(),
                 "RegistrationOpen");
             break;
         }
@@ -285,9 +291,8 @@ QuicTestCtlEvtFileCreate(
             Client);
 
         //
-        // Update globals. (TODO: Add multiple device client support)
+        // TODO: Add multiple device client support?
         //
-        Registration = Client->Registration;
         QuicTestClient = Client;
     }
     while (false);
@@ -342,19 +347,13 @@ QuicTestCtlEvtFileCleanup(
         //
         if (Client->SecurityConfig != nullptr) {
             MsQuic->SecConfigDelete(Client->SecurityConfig);
+            SecurityConfig = nullptr;
         }
 
-        //
-        // Release the reference on the MsQuic Library.
-        //
-        MsQuic->RegistrationClose(Client->Registration);
-
-        //
-        // Clean up globals.
-        //
-        QuicTestClient = nullptr;
-        SecurityConfig = nullptr;
+        delete Registration;
         Registration = nullptr;
+
+        QuicTestClient = nullptr;
     }
 
     KeLeaveGuardedRegion();
@@ -407,7 +406,7 @@ QuicTestCtlSetSecurityConfig(
     //
     NTSTATUS Status =
         MsQuic->SecConfigCreate(
-            Registration,
+            *Registration,
             QUIC_SEC_CONFIG_FLAG_CERTIFICATE_HASH_STORE,
             &CertHashStore,
             nullptr,
@@ -444,13 +443,6 @@ QuicTestCtlSetSecurityConfig(
         Client);
 
 Error:
-
-    if (QUIC_FAILED(Status)) {
-        if (Client->SecurityConfig != nullptr) {
-            MsQuic->SecConfigDelete(Client->SecurityConfig);
-            Client->SecurityConfig = nullptr;
-        }
-    }
 
     return Status;
 }

@@ -10,12 +10,7 @@ Abstract:
 
 --*/
 
-#ifdef _WIN32
 #pragma once
-#endif
-
-#ifndef QUIC_DATAPATH_
-#define QUIC_DATAPATH_
 
 #include "quic_platform.h"
 
@@ -172,7 +167,7 @@ typedef struct QUIC_RECV_DATAGRAM {
     //
     // The partition ID of the received datagram.
     //
-    uint8_t PartitionIndex;
+    uint16_t PartitionIndex;
 
     //
     // The Type of Service (ToS) field of the IPv4 header or Traffic Class field
@@ -487,5 +482,3 @@ QuicDataPathBindingGetParam(
 #if defined(__cplusplus)
 }
 #endif
-
-#endif // QUIC_DATAPATH_

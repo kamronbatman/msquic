@@ -39,7 +39,7 @@ Abstract:
 typedef struct QUIC_RECEIVE_PROCESSING_STATE {
     BOOLEAN ResetIdleTimeout;
     BOOLEAN UpdatePartitionId;
-    uint8_t PartitionIndex;
+    uint16_t PartitionIndex;
 } QUIC_RECEIVE_PROCESSING_STATE;
 
 _IRQL_requires_max_(PASSIVE_LEVEL)
@@ -66,11 +66,11 @@ QuicConnAlloc(
     // the current processor for now. Once the connection receives a packet the
     // partition can be updated accordingly.
     //
-    uint8_t BasePartitionId =
+    uint16_t BasePartitionId =
         IsServer ?
             (Datagram->PartitionIndex % MsQuicLib.PartitionCount) :
             CurProcIndex % MsQuicLib.PartitionCount;
-    uint8_t PartitionId = QuicPartitionIdCreate(BasePartitionId);
+    uint16_t PartitionId = QuicPartitionIdCreate(BasePartitionId);
     QUIC_DBG_ASSERT(BasePartitionId == QuicPartitionIdGetIndex(PartitionId));
 
     QUIC_CONNECTION* Connection =
@@ -295,6 +295,15 @@ QuicConnFree(
     QUIC_TEL_ASSERT(QuicListIsEmpty(&Connection->Streams.ClosedStreams));
     QuicLossDetectionUninitialize(&Connection->LossDetection);
     QuicSendUninitialize(&Connection->Send);
+    //
+    // Free up packet space if it wasn't freed by QuicConnUninitialize
+    //
+    for (uint32_t i = 0; i < ARRAYSIZE(Connection->Packets); i++) {
+        if (Connection->Packets[i] != NULL) {
+            QuicPacketSpaceUninitialize(Connection->Packets[i]);
+            Connection->Packets[i] = NULL;
+        }
+    }
 #if DEBUG
     while (!QuicListIsEmpty(&Connection->Streams.AllStreams)) {
         QUIC_STREAM *Stream =
@@ -379,7 +388,7 @@ QuicConnApplySettings(
     _In_ const QUIC_SETTINGS* Settings
     )
 {
-    Connection->State.UsePacing = Settings->PacingDefault;
+    Connection->State.UsePacing = Settings->PacingEnabled;
     Connection->MaxAckDelayMs = Settings->MaxAckDelayMs;
     Connection->Paths[0].SmoothedRtt = MS_TO_US(Settings->InitialRttMs);
     Connection->Paths[0].RttVariance = Connection->Paths[0].SmoothedRtt / 2;
@@ -392,17 +401,17 @@ QuicConnApplySettings(
     uint8_t PeerStreamType =
         QuicConnIsServer(Connection) ?
             STREAM_ID_FLAG_IS_CLIENT : STREAM_ID_FLAG_IS_SERVER;
-    if (Settings->BidiStreamCount != 0) {
+    if (Settings->PeerBidiStreamCount != 0) {
         QuicStreamSetUpdateMaxCount(
             &Connection->Streams,
             PeerStreamType | STREAM_ID_FLAG_IS_BI_DIR,
-            Settings->BidiStreamCount);
+            Settings->PeerBidiStreamCount);
     }
-    if (Settings->UnidiStreamCount != 0) {
+    if (Settings->PeerUnidiStreamCount != 0) {
         QuicStreamSetUpdateMaxCount(
             &Connection->Streams,
             PeerStreamType | STREAM_ID_FLAG_IS_UNI_DIR,
-            Settings->UnidiStreamCount);
+            Settings->PeerUnidiStreamCount);
     }
 
     if (Settings->ServerResumptionLevel > QUIC_SERVER_NO_RESUME &&
@@ -1339,6 +1348,8 @@ QuicConnOnShutdownComplete(
 
         QUIC_CONNECTION_EVENT Event;
         Event.Type = QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE;
+        Event.SHUTDOWN_COMPLETE.HandshakeCompleted =
+            Connection->State.Connected;
         Event.SHUTDOWN_COMPLETE.PeerAcknowledgedShutdown =
             !Connection->State.ShutdownCompleteTimedOut;
 
@@ -3631,9 +3642,14 @@ QuicConnRecvDecryptAndAuthenticate(
         Connection->Stats.Recv.DecryptionFailures++;
         QuicPacketLogDrop(Connection, Packet, "Decryption failure");
         QuicPerfCounterIncrement(QUIC_PERF_COUNTER_PKTS_DECRYPTION_FAIL);
+        if (Connection->Stats.Recv.DecryptionFailures >= QUIC_AEAD_INTEGRITY_LIMIT) {
+            QuicConnTransportError(Connection, QUIC_ERROR_AEAD_LIMIT_REACHED);
+        }
 
         return FALSE;
     }
+
+    Connection->Stats.Recv.ValidPackets++;
 
     //
     // Validate the header's reserved bits now that the packet has been
@@ -5034,6 +5050,20 @@ QuicConnRecvDatagrams(
         QuicDataPathBindingReturnRecvDatagrams(ReleaseChain);
     }
 
+    if (QuicConnIsServer(Connection) &&
+        Connection->Stats.Recv.ValidPackets == 0 &&
+        !Connection->State.ClosedLocally) {
+        //
+        // The packet(s) that created this connection weren't valid. We should
+        // immediately throw away the connection.
+        //
+        QuicTraceLogConnWarning(
+            InvalidInitialPackets,
+            Connection,
+            "Aborting connection with invalid initial packets");
+        QuicConnSilentlyAbort(Connection);
+    }
+
     //
     // Any new paths created here were created before packet validation. Now
     // remove any non-active paths that didn't get any valid packets.
@@ -6280,8 +6310,8 @@ QuicConnParamGet(
 
     case QUIC_PARAM_CONN_IDEAL_PROCESSOR:
 
-        if (*BufferLength < sizeof(uint8_t)) {
-            *BufferLength = sizeof(uint8_t);
+        if (*BufferLength < sizeof(uint16_t)) {
+            *BufferLength = sizeof(uint16_t);
             Status = QUIC_STATUS_BUFFER_TOO_SMALL;
             break;
         }
@@ -6291,8 +6321,8 @@ QuicConnParamGet(
             break;
         }
 
-        *BufferLength = sizeof(uint8_t);
-        *(uint8_t*)Buffer = Connection->Worker->IdealProcessor;
+        *BufferLength = sizeof(uint16_t);
+        *(uint16_t*)Buffer = Connection->Worker->IdealProcessor;
 
         Status = QUIC_STATUS_SUCCESS;
         break;

@@ -61,25 +61,18 @@ MsQuicCalculatePartitionMask(
     void
     )
 {
-    if (MsQuicLib.PartitionCount >= 128) {
-        MsQuicLib.PartitionMask = 0xFF;
-    } else if (MsQuicLib.PartitionCount >= 64) {
-        MsQuicLib.PartitionMask = 0x7F;
-    } else if (MsQuicLib.PartitionCount >= 32) {
-        MsQuicLib.PartitionMask = 0x3F;
-    } else if (MsQuicLib.PartitionCount >= 16) {
-        MsQuicLib.PartitionMask = 0x1F;
-    } else if (MsQuicLib.PartitionCount >= 8) {
-        MsQuicLib.PartitionMask = 0x0F;
-    } else if (MsQuicLib.PartitionCount >= 4) {
-        MsQuicLib.PartitionMask = 0x07;
-    } else if (MsQuicLib.PartitionCount >= 2) {
-        MsQuicLib.PartitionMask = 0x03;
-    } else if (MsQuicLib.PartitionCount >= 1) {
-        MsQuicLib.PartitionMask = 0x01;
-    } else {
-        MsQuicLib.PartitionMask = 0;
-    }
+    QUIC_DBG_ASSERT(MsQuicLib.PartitionCount != 0);
+    QUIC_DBG_ASSERT(MsQuicLib.PartitionCount != 0xFFFF);
+
+    uint16_t PartitionCount = MsQuicLib.PartitionCount;
+
+    PartitionCount |= (PartitionCount >> 1);
+    PartitionCount |= (PartitionCount >> 2);
+    PartitionCount |= (PartitionCount >> 4);
+    PartitionCount |= (PartitionCount >> 8);
+    uint16_t HighBitSet = PartitionCount - (PartitionCount >> 1);
+
+    MsQuicLib.PartitionMask = (HighBitSet << 1) - 1;
 }
 
 _IRQL_requires_max_(PASSIVE_LEVEL)
@@ -200,7 +193,7 @@ MsQuicLibraryInitialize(
     //
     MsQuicLib.ProcessorCount = (uint16_t) QuicProcActiveCount();
     QUIC_FRE_ASSERT(MsQuicLib.ProcessorCount > 0);
-    MsQuicLib.PartitionCount = (uint8_t)MsQuicLib.ProcessorCount;
+    MsQuicLib.PartitionCount = (uint16_t)min(MsQuicLib.ProcessorCount, UINT16_MAX-1);
     if (MsQuicLib.PartitionCount  > (uint32_t)MsQuicLib.Settings.MaxPartitionCount) {
         MsQuicLib.PartitionCount  = (uint32_t)MsQuicLib.Settings.MaxPartitionCount;
     }
@@ -541,7 +534,6 @@ QuicLibApplyLoadBalancingSetting(
         MSQUIC_CID_PID_LENGTH +
         MSQUIC_CID_PAYLOAD_LENGTH;
 
-    QUIC_FRE_ASSERT(MsQuicLib.CidServerIdLength >= MSQUIC_MIN_CID_SID_LENGTH);
     QUIC_FRE_ASSERT(MsQuicLib.CidServerIdLength <= MSQUIC_MAX_CID_SID_LENGTH);
     QUIC_FRE_ASSERT(MsQuicLib.CidTotalLength >= QUIC_MIN_INITIAL_CONNECTION_ID_LENGTH);
     QUIC_FRE_ASSERT(MsQuicLib.CidTotalLength <= MSQUIC_CID_MAX_LENGTH);
@@ -572,7 +564,7 @@ QuicLibrarySetGlobalParam(
         }
 
         MsQuicLib.Settings.RetryMemoryLimit = *(uint16_t*)Buffer;
-        MsQuicLib.Settings.AppSet.RetryMemoryLimit = TRUE;
+        MsQuicLib.Settings.IsSet.RetryMemoryLimit = TRUE;
         QuicTraceLogInfo(
             LibraryRetryMemoryLimitSet,
             "[ lib] Updated retry memory limit = %hu",
@@ -603,7 +595,7 @@ QuicLibrarySetGlobalParam(
         }
 
         MsQuicLib.Settings.LoadBalancingMode = *(uint16_t*)Buffer;
-        MsQuicLib.Settings.AppSet.LoadBalancingMode = TRUE;
+        MsQuicLib.Settings.IsSet.LoadBalancingMode = TRUE;
         QuicTraceLogInfo(
             LibraryLoadBalancingModeSet,
             "[ lib] Updated load balancing mode = %hu",
