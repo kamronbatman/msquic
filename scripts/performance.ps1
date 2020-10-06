@@ -349,11 +349,11 @@ function Invoke-Test {
             }
 
             Write-Output "Run $($_): $LocalParsedResults $($Test.Units)"
-            $LocalResults | Write-Debug
+            $LocalResults | Write-Host
         }
     } finally {
         $RemoteResults = Wait-ForRemote -Job $RemoteJob
-        Write-Debug $RemoteResults.ToString()
+        Write-Host $RemoteResults.ToString()
     }
 
     Stop-Tracing -Exe $LocalExe
