@@ -361,6 +361,8 @@ typedef enum QUIC_PERFORMANCE_COUNTERS {
     QUIC_PERF_COUNTER_WORK_OPER_QUEUE_DEPTH,// Current worker operations queued.
     QUIC_PERF_COUNTER_WORK_OPER_QUEUED,     // Total worker operations queued ever.
     QUIC_PERF_COUNTER_WORK_OPER_COMPLETED,  // Total worker operations processed ever.
+    QUIC_PERF_COUNTER_RECV_OPER,
+    QUIC_PERF_COUNTER_SEND_OPER,
     QUIC_PERF_COUNTER_MAX
 } QUIC_PERFORMANCE_COUNTERS;
 

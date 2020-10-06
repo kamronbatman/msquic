@@ -4994,6 +4994,8 @@ QuicConnFlushRecv(
     Connection->ReceiveQueueTail = &Connection->ReceiveQueue;
     QuicDispatchLockRelease(&Connection->ReceiveQueueLock);
 
+    QuicPerfCounterIncrement(QUIC_PERF_COUNTER_RECV_OPER);
+
     QuicConnRecvDatagrams(
         Connection, ReceiveQueue, ReceiveQueueCount, FALSE);
 }

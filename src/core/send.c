@@ -990,6 +990,8 @@ QuicSendFlush(
         "Flushing send. Allowance=%u bytes",
         Builder.SendAllowance);
 
+    QuicPerfCounterIncrement(QUIC_PERF_COUNTER_SEND_OPER);
+
     do {
 
         if (Path->Allowance < QUIC_MIN_SEND_ALLOWANCE) {
