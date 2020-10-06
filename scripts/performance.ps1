@@ -182,11 +182,11 @@ if ($Local) {
             $Session2 = New-PSSession -ComputerName $ComputerName -Credential $WinRMUser -ConfigurationName PowerShell.7
         } else {
             $Session = New-PSSession -ComputerName $ComputerName -ConfigurationName PowerShell.7
-            $Session2 = New-PSSession -ComputerName $ComputerName -Credential $WinRMUser -ConfigurationName PowerShell.7
+            Session2 = New-PSSession -ComputerName $ComputerName -ConfigurationName PowerShell.7
         }
     } else {
         $Session = New-PSSession -HostName "$Remote"
-        $Session2 = New-PSSession -ComputerName $ComputerName -Credential $WinRMUser -ConfigurationName PowerShell.7
+        $Session2 = New-PSSession -HostName "$Remote"
     }
 
     $RemoteAddress = $Session.ComputerName
