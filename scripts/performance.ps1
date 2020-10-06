@@ -339,7 +339,7 @@ function Invoke-Test {
     try {
         1..$Test.Iterations | ForEach-Object {
             if ($IsWindows) {
-                Invoke-TestCommand -Session $Session -ScriptBlock {
+                Invoke-TestCommand -Session $Session2 -ScriptBlock {
                     param ($PathRoot, $ExeName)
                     $EtwExePath = Join-Path $PathRoot $ExeName
                     & $EtwExePath --local --trace
@@ -351,7 +351,7 @@ function Invoke-Test {
             $LocalParsedResults = Get-TestResult -Results $LocalResults -Matcher $Test.ResultsMatcher
 
             if ($IsWindows) {
-                Invoke-TestCommand -Session $Session -ScriptBlock {
+                Invoke-TestCommand -Session $Session2 -ScriptBlock {
                     param ($PathRoot, $ExeName)
                     $EtwExePath = Join-Path $PathRoot $ExeName
                     & $EtwExePath --local --trace
