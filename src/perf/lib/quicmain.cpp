@@ -168,7 +168,6 @@ QuicMainStart(
         if (QUIC_SUCCEEDED(Status)) {
             Status = TestToRun->Start(StopEvent);
             if (QUIC_SUCCEEDED(Status)) {
-                DumpMsQuicPerfCountersToOutput(MsQuic);
                 return QUIC_STATUS_SUCCESS;
             } else {
                 WriteOutput("Test Failed To Start: %d\n", Status);
@@ -203,6 +202,7 @@ QuicMainStop(
     }
 
     QUIC_STATUS Status = TestToRun->Wait(Timeout);
+    DumpMsQuicPerfCountersToOutput(MsQuic);
     delete TestToRun;
     delete MsQuic;
     if (ServerMode) {
