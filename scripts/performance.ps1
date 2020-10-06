@@ -173,16 +173,20 @@ Import-Module (Join-Path $PSScriptRoot 'performance-helper.psm1') -Force
 if ($Local) {
     $RemoteAddress = "localhost"
     $Session = $null
+    $Session2 = $null
     $LocalAddress = "127.0.0.1"
 } else {
     if ($Remote -eq "") {
         if ($WinRMUser -ne "") {
             $Session = New-PSSession -ComputerName $ComputerName -Credential $WinRMUser -ConfigurationName PowerShell.7
+            $Session2 = New-PSSession -ComputerName $ComputerName -Credential $WinRMUser -ConfigurationName PowerShell.7
         } else {
             $Session = New-PSSession -ComputerName $ComputerName -ConfigurationName PowerShell.7
+            $Session2 = New-PSSession -ComputerName $ComputerName -Credential $WinRMUser -ConfigurationName PowerShell.7
         }
     } else {
         $Session = New-PSSession -HostName "$Remote"
+        $Session2 = New-PSSession -ComputerName $ComputerName -Credential $WinRMUser -ConfigurationName PowerShell.7
     }
 
     $RemoteAddress = $Session.ComputerName
@@ -334,9 +338,26 @@ function Invoke-Test {
 
     try {
         1..$Test.Iterations | ForEach-Object {
+            if ($IsWindows) {
+                Invoke-TestCommand -Session $Session -ScriptBlock {
+                    param ($PathRoot, $ExeName)
+                    $EtwExePath = Join-Path $PathRoot $ExeName
+                    & $EtwExePath --local --trace
+                } -ArgumentList $RemoteExePath, "quicetw.exe"
+            }
+
             Write-Debug "Running Local: $LocalExe Args: $LocalArguments"
             $LocalResults = Invoke-LocalExe -Exe $LocalExe -RunArgs $LocalArguments -Timeout $Timeout
             $LocalParsedResults = Get-TestResult -Results $LocalResults -Matcher $Test.ResultsMatcher
+
+            if ($IsWindows) {
+                Invoke-TestCommand -Session $Session -ScriptBlock {
+                    param ($PathRoot, $ExeName)
+                    $EtwExePath = Join-Path $PathRoot $ExeName
+                    & $EtwExePath --local --trace
+                } -ArgumentList $RemoteExePath, "quicetw.exe"
+            }
+
             $AllRunsResults += $LocalParsedResults
             if ($PGO) {
                 # Merge client PGO Counts
@@ -431,6 +452,9 @@ try {
 } finally {
     if ($null -ne $Session) {
         Remove-PSSession -Session $Session
+    }
+    if ($null -ne $Session2) {
+        Remove-PSSession -Session $Session2
     }
     LocalTeardown($LocalDataCache)
 }

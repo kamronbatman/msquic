@@ -527,6 +527,11 @@ if(QUIC_BUILD_PERF)
     add_subdirectory(src/perf/bin)
 endif()
 
+if(WIN32)
+    add_subdirectory(src/tools/etwlib)
+    add_subdirectory(src/tools/etw)
+endif()
+
 # Test code
 if(QUIC_BUILD_TEST)
     # Build the googletest framework.
