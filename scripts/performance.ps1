@@ -338,25 +338,9 @@ function Invoke-Test {
 
     try {
         1..$Test.Iterations | ForEach-Object {
-            if ($IsWindows) {
-                Invoke-TestCommand -Session $Session2 -ScriptBlock {
-                    param ($PathRoot, $ExeName)
-                    $EtwExePath = Join-Path $PathRoot $ExeName
-                    & $EtwExePath --local --trace
-                } -ArgumentList $RemoteExePath, "quicetw.exe"
-            }
-
             Write-Debug "Running Local: $LocalExe Args: $LocalArguments"
             $LocalResults = Invoke-LocalExe -Exe $LocalExe -RunArgs $LocalArguments -Timeout $Timeout
             $LocalParsedResults = Get-TestResult -Results $LocalResults -Matcher $Test.ResultsMatcher
-
-            if ($IsWindows) {
-                Invoke-TestCommand -Session $Session2 -ScriptBlock {
-                    param ($PathRoot, $ExeName)
-                    $EtwExePath = Join-Path $PathRoot $ExeName
-                    & $EtwExePath --local --trace
-                } -ArgumentList $RemoteExePath, "quicetw.exe"
-            }
 
             $AllRunsResults += $LocalParsedResults
             if ($PGO) {

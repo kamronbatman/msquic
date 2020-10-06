@@ -125,6 +125,7 @@ QuicMainStart(
         if (QUIC_SUCCEEDED(Status)) {
             Status = TestToRun->Start(StopEvent);
             if (QUIC_SUCCEEDED(Status)) {
+                DumpMsQuicPerfCounters(MsQuic);
                 return QUIC_STATUS_SUCCESS;
             } else {
                 WriteOutput("Test Failed To Start: %d\n", Status);
