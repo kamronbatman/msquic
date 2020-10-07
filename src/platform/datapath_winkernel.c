@@ -1884,6 +1884,8 @@ QuicDataPathSocketReceive(
     _In_opt_ PWSK_DATAGRAM_INDICATION DataIndicationHead
     )
 {
+    char randNum = 0;
+
     //
     // Check to see if the DataIndicate is NULL, which indicates that the
     // socket has been closed
@@ -1896,7 +1898,9 @@ QuicDataPathSocketReceive(
 
     QUIC_DATAPATH_BINDING* Binding = (QUIC_DATAPATH_BINDING*)Context;
 
-    uint32_t CurProcNumber = (QuicProcCurrentNumber() + (rand() & 1)) % QuicProcMaxCount();
+    QuicRandom(1, &randNum);
+
+    uint32_t CurProcNumber = (QuicProcCurrentNumber() + (randNum & 1)) % QuicProcMaxCount();
     if (!QuicRundownAcquire(&Binding->Rundown[CurProcNumber])) {
         return STATUS_DEVICE_NOT_READY;
     }
