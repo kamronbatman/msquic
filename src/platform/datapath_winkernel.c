@@ -1884,8 +1884,6 @@ QuicDataPathSocketReceive(
     _In_opt_ PWSK_DATAGRAM_INDICATION DataIndicationHead
     )
 {
-    char randNum = 0;
-
     //
     // Check to see if the DataIndicate is NULL, which indicates that the
     // socket has been closed
