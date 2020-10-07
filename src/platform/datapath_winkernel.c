@@ -1896,7 +1896,7 @@ QuicDataPathSocketReceive(
 
     QUIC_DATAPATH_BINDING* Binding = (QUIC_DATAPATH_BINDING*)Context;
 
-    uint32_t CurProcNumber = QuicProcCurrentNumber();
+    uint32_t CurProcNumber = (QuicProcCurrentNumber() + 1) % QuicProcMaxCount();
     if (!QuicRundownAcquire(&Binding->Rundown[CurProcNumber])) {
         return STATUS_DEVICE_NOT_READY;
     }
