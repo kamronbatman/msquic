@@ -1898,9 +1898,7 @@ QuicDataPathSocketReceive(
 
     QUIC_DATAPATH_BINDING* Binding = (QUIC_DATAPATH_BINDING*)Context;
 
-    QuicRandom(1, &randNum);
-
-    uint32_t CurProcNumber = (QuicProcCurrentNumber() + (randNum & 1)) % QuicProcMaxCount();
+    uint32_t CurProcNumber = QuicProcCurrentNumber();
     if (!QuicRundownAcquire(&Binding->Rundown[CurProcNumber])) {
         return STATUS_DEVICE_NOT_READY;
     }

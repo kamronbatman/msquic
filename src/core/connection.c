@@ -67,6 +67,9 @@ QuicConnAlloc(
     BOOLEAN IsServer = Datagram != NULL;
     uint32_t CurProcIndex = QuicProcCurrentNumber();
 
+    uint32_t randNum;
+    QuicRandom(4, &randNum);
+
     //
     // For client, the datapath partitioning info is not known yet, so just use
     // the current processor for now. Once the connection receives a packet the
@@ -74,7 +77,7 @@ QuicConnAlloc(
     //
     uint16_t BasePartitionId =
         IsServer ?
-            (Datagram->PartitionIndex % MsQuicLib.PartitionCount) :
+            ((Datagram->PartitionIndex + (randNum & 1)) % MsQuicLib.PartitionCount) :
             CurProcIndex % MsQuicLib.PartitionCount;
     uint16_t PartitionId = QuicPartitionIdCreate(BasePartitionId);
     QUIC_DBG_ASSERT(BasePartitionId == QuicPartitionIdGetIndex(PartitionId));
